@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: 2024 Uri Shaked, 2024 Leo Moser
+# SPDX-FileCopyrightText: 2024 Leo Moser
 
 import klayout.db as db
 import argparse
 from PIL import Image
 
-def convert_to_gds(input_filepath, output_filepath, cellname='TOP', scale=1.0, threshold=128, merge=False, pixel_size=0.3):
+def convert_to_gds(input_filepath, output_filepath, cellname='TOP', scale=1.0, threshold=128, invert=False, merge=False, pixel_size=0.3):
 
     ly = db.Layout()
     ly.dbu = 0.001
@@ -23,23 +23,30 @@ def convert_to_gds(input_filepath, output_filepath, cellname='TOP', scale=1.0, t
     new_image.paste(img, (0, 0), img)                # Paste the image on the background
 
     # Convert the image to grayscale
-    new_image = new_image.convert("L")
+    new_image_grayscale = new_image.convert("L")
+    
+    #new_image_grayscale.show()
+    
+    # Convert the image to binary
+    new_image_binary = new_image_grayscale.point(lambda x: 255 if x > threshold else 0)
+    new_image_binary = new_image_binary.convert("1")
+
+    #new_image_binary.show()
 
     # Scale down the image
-    new_image.thumbnail((new_image.width * scale, new_image.height * scale), Image.LANCZOS)
+    new_image_binary.thumbnail((new_image_binary.width * scale, new_image_binary.height * scale), Image.LANCZOS)
 
     # Use a region to merge pixels together
     if merge:
         top_region = db.Region()
 
-    for y in range(new_image.height):
-        for x in range(new_image.width):
-            color = new_image.getpixel((x, y))
-            if color < threshold:
-                # Adjust y-coordinate to flip the image vertically
-                flipped_y = new_image.height - y - 1
-                
-                pixel = db.DBox(0.0, 0.0, pixel_size, pixel_size).moved(x * pixel_size, flipped_y * pixel_size)
+    for y in range(new_image_binary.height):
+        for x in range(new_image_binary.width):
+            # If pixel is set
+            pixel = new_image_binary.getpixel((x, y))
+            
+            if pixel and not invert or not pixel and invert:
+                pixel = db.DBox(0.0, 0.0, pixel_size, pixel_size).moved(x * pixel_size, (new_image_binary.height - y - 1) * pixel_size)
                 
                 if merge:
                     pixel_polygon = db.DPolygon(pixel)
@@ -67,8 +74,9 @@ if __name__ == "__main__":
     parser.add_argument('--pixel-size', type=float, default=0.3, help='pixel size in um')
     parser.add_argument('--scale', type=float, default=1.0, help='downscale the image, e.g. 0.5')
     parser.add_argument('--threshold', type=int, default=128, help='threshold to compare against')
+    parser.add_argument('--invert', action='store_true', help='invert the pixels')
     parser.add_argument('--merge', action='store_true', help='merge polygons')
-
+    
     args = parser.parse_args()
 
-    convert_to_gds(args.image_path, args.gds_path, cellname=args.cellname, scale=args.scale, threshold=args.threshold, merge=args.merge, pixel_size=args.pixel_size)
+    convert_to_gds(args.image_path, args.gds_path, cellname=args.cellname, scale=args.scale, threshold=args.threshold, invert=args.invert, merge=args.merge, pixel_size=args.pixel_size)
